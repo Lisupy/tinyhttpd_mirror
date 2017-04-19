@@ -54,47 +54,49 @@ void unimplemented(int);
 /**********************************************************************/
 void accept_request(void *arg)
 {
-    int client = (intptr_t)arg;
+    int client = (intptr_t)arg;  // 和main函数中的线程创建使用了一个很奇怪的技巧来避免使用锁
     char buf[1024];
     size_t numchars;
-    char method[255];
-    char url[255];
-    char path[512];
+    char method[255]; // http 请求的方法GET和POST
+    char url[255];    // http 请求的url包含了query parameters
+    char path[512];   // path 对应于server运行的相对路径
     size_t i, j;
     struct stat st;
     int cgi = 0;      /* becomes true if server decides this is a CGI
-                       * program */
+                       * program */ 
     char *query_string = NULL;
 
     numchars = get_line(client, buf, sizeof(buf));
     i = 0; j = 0;
-    while (!ISspace(buf[i]) && (i < sizeof(method) - 1))
-    {
+
+    /* 提取出buf中的HTTP方法 */
+    while (!ISspace(buf[i]) && (i < sizeof(method) - 1)) {      
         method[i] = buf[i];
         i++;
     }
     j=i;
     method[i] = '\0';
 
-    if (strcasecmp(method, "GET") && strcasecmp(method, "POST"))
-    {
+    /* 对于请求方法不是GET或POST的处理*/
+    if (strcasecmp(method, "GET") && strcasecmp(method, "POST")){  
         unimplemented(client);
         return;
     }
 
     if (strcasecmp(method, "POST") == 0)
         cgi = 1;
-
+    
+    /*解析请求的URL包含query_parameter*/
     i = 0;
-    while (ISspace(buf[j]) && (j < numchars))
+    while (ISspace(buf[j]) && (j < numchars)) // 忽略掉method后的space
         j++;
-    while (!ISspace(buf[j]) && (i < sizeof(url) - 1) && (j < numchars))
-    {
+    while (!ISspace(buf[j]) && (i < sizeof(url) - 1) && (j < numchars)){  
         url[i] = buf[j];
         i++; j++;
     }
     url[i] = '\0';
 
+    /* GET方法 获取query parameters*/
     if (strcasecmp(method, "GET") == 0)
     {
         query_string = url;
@@ -108,21 +110,24 @@ void accept_request(void *arg)
         }
     }
 
+    /* 当 url 以 / 结尾，或 url 是个目录，则默认在 path 中加上 index.html，表示访问主页 */
     sprintf(path, "htdocs%s", url);
     if (path[strlen(path) - 1] == '/')
         strcat(path, "index.html");
-    if (stat(path, &st) == -1) {
+
+    if (stat(path, &st) == -1) { // 检查文件是否存在，-1文件不存在
         while ((numchars > 0) && strcmp("\n", buf))  /* read & discard headers */
             numchars = get_line(client, buf, sizeof(buf));
         not_found(client);
     }
-    else
-    {
-        if ((st.st_mode & S_IFMT) == S_IFDIR)
+
+    else{
+        if ((st.st_mode & S_IFMT) == S_IFDIR) // 判断路径是否为文件夹，如果为文件夹，则添加/index.html
             strcat(path, "/index.html");
-        if ((st.st_mode & S_IXUSR) ||
-                (st.st_mode & S_IXGRP) ||
-                (st.st_mode & S_IXOTH)    )
+        // 如果文件对所有用户都有执行权限，则将cgi置为1
+        if ( (st.st_mode & S_IXUSR) ||
+                (st.st_mode & S_IXGRP) || 
+                (st.st_mode & S_IXOTH))
             cgi = 1;
         if (!cgi)
             serve_file(client, path);
@@ -358,6 +363,7 @@ void headers(int client, const char *filename)
     strcpy(buf, SERVER_STRING);
     send(client, buf, strlen(buf), 0);
     sprintf(buf, "Content-Type: text/html\r\n");
+    // strcpy(buf, "Content-Type: text/html\r\n");  // 这样也是可以的   
     send(client, buf, strlen(buf), 0);
     strcpy(buf, "\r\n");
     send(client, buf, strlen(buf), 0);
@@ -432,11 +438,11 @@ int startup(u_short *port)
     int on = 1;
     struct sockaddr_in name;
 
-    httpd = socket(PF_INET, SOCK_STREAM, 0);
+    httpd = socket(PF_INET, SOCK_STREAM, 0);  //创建套接字
     if (httpd == -1)
         error_die("socket");
-    memset(&name, 0, sizeof(name));
-    name.sin_family = AF_INET;
+    memset(&name, 0, sizeof(name));   // 初始化地址
+    name.sin_family = AF_INET;        // PF_INET 和AF_INET 的区别，看博客
     name.sin_port = htons(*port);
     name.sin_addr.s_addr = htonl(INADDR_ANY);
     if ((setsockopt(httpd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on))) < 0)  
@@ -454,6 +460,8 @@ int startup(u_short *port)
     }
     if (listen(httpd, 5) < 0)
         error_die("listen");
+    
+    printf("httpd running on %s:%d\n", inet_ntoa(name.sin_addr), *port);  /* 我的一点修改 */
     return(httpd);
 }
 
@@ -496,7 +504,6 @@ int main(void)
     pthread_t newthread;
 
     server_sock = startup(&port);
-    printf("httpd running on port %d\n", port);
 
     while (1)
     {
@@ -505,8 +512,9 @@ int main(void)
                 &client_name_len);
         if (client_sock == -1)
             error_die("accept");
-        /* accept_request(&client_sock); */
-        if (pthread_create(&newthread , NULL, (void *)accept_request, (void *)&client_sock) != 0)
+        // accept_request(&client_sock);
+
+        if (pthread_create(&newthread , NULL, (void *)accept_request, (void *)(intptr_t)client_sock) != 0)
             perror("pthread_create");
     }
 
