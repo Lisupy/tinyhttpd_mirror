@@ -14,4 +14,4 @@ Compile for Linux
 
 这份代码是从[EZLippi](https://github.com/EZLippi/Tinyhttpd)复制过来的，并做了一些注释和改进
 
-关于代码的一些细节解释，Read the fucking source code. 还有我的[博客]()
+关于代码的一些细节解释，Read the fucking source code. 还有我的[博客](https://lisupy.github.io/server/http/%E4%BB%A3%E7%A0%81%E9%98%85%E8%AF%BB/2017/04/18/tinyhttpd.html)
